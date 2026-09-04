@@ -8,6 +8,7 @@ import streamlit as st
 import pandas as pd
 
 from graph.build_graph import build_graph
+from metrics.engine import compute_metrics
 
 st.set_page_config(page_title="AI Revenue Recovery Agent", layout="wide")
 
@@ -70,21 +71,64 @@ results = st.session_state.results
 if not results:
     st.info("Set a batch size and click **Run Recovery Batch** to start.")
 else:
-    # Summary metrics
-    total_at_risk = sum(r["txn"]["amount"] for r in results)
-    recovered = sum(
-        r["action_result"].get("amount_recovered", 0)
-        for r in results
-        if r["action_result"].get("success")
-    )
-    escalations = sum(1 for r in results if r["decision"] == "escalate_human")
-    stopped = sum(1 for r in results if r.get("stop_reason"))
+    m = compute_metrics(results)
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total At-Risk", f"₹{total_at_risk:,.0f}")
-    col2.metric("Recovered (sim)", f"₹{recovered:,.0f}")
-    col3.metric("Escalations", escalations)
-    col4.metric("Stopped by Rule", stopped)
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("Total At-Risk", f"₹{m['total_at_risk_amount']:,.0f}")
+    col2.metric("Recovered", f"₹{m['total_recovered_amount']:,.0f}")
+    col3.metric("Recovery Rate", f"{m['recovery_rate_pct']}%")
+    col4.metric("Escalations", m["escalations_count"])
+    col5.metric("Stopped by Rule", m["stopped_count"])
+
+    st.markdown("---")
+    st.subheader("Breakdown")
+
+    bcol1, bcol2, bcol3 = st.columns(3)
+
+    with bcol1:
+        st.markdown("**Decisions taken**")
+        st.dataframe(
+            pd.DataFrame(
+                list(m["decisions_breakdown"].items()),
+                columns=["Decision", "Count"],
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    with bcol2:
+        st.markdown("**Success rate by decision**")
+        st.dataframe(
+            pd.DataFrame(
+                list(m["success_rate_by_decision_pct"].items()),
+                columns=["Decision", "Success %"],
+            ),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    with bcol3:
+        st.markdown("**Stopped — by reason**")
+        if m["stopped_by_reason"]:
+            st.dataframe(
+                pd.DataFrame(
+                    list(m["stopped_by_reason"].items()),
+                    columns=["Reason", "Count"],
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.write("None stopped in this batch.")
+
+    st.markdown("**Recovered ₹ by failure stage**")
+    stage_df = pd.DataFrame(
+        {
+            "At-Risk": m["at_risk_by_stage"],
+            "Recovered": m["recovered_by_stage"],
+        }
+    ).fillna(0)
+    st.bar_chart(stage_df)
 
     st.markdown("---")
     st.subheader("Transaction Trace")
