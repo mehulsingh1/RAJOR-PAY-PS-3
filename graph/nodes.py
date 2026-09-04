@@ -11,6 +11,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from graph.state import RecoveryState
 from llm.client import llm
 from rag.retriever import retrieve_context
+from mcp_tools.tools import execute_action
 
 ALLOWED_DECISIONS = [
     "retry",
@@ -130,14 +131,12 @@ def decide_node(state: RecoveryState) -> RecoveryState:
 
 
 def act_node(state: RecoveryState) -> RecoveryState:
-    """Placeholder — real MCP tool calls added in Step 5."""
+    """Execute the chosen intervention via MCP tool (simulated Razorpay API)."""
     txn = state["txn"]
-    state["action_result"] = {
-        "action": state["decision"],
-        "success": True,
-        "amount_recovered": txn["amount"],  # dummy: assume full recovery
-    }
-    print(f"[Act] (dummy) executed '{state['decision']}'")
+    result = execute_action(state["decision"], txn)
+    state["action_result"] = result
+    status = "SUCCESS" if result["success"] else "NO RECOVERY"
+    print(f"[Act] {state['decision']} — {status} — ₹{result['amount_recovered']}")
     return state
 
 
