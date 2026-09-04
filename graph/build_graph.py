@@ -13,6 +13,7 @@ from graph.nodes import (
     act_node,
     log_node,
     route_after_stop_check,
+    route_after_act,
 )
 
 
@@ -41,7 +42,16 @@ def build_graph():
 
     graph.add_edge("diagnose", "decide")
     graph.add_edge("decide", "act")
-    graph.add_edge("act", "log")
+
+    graph.add_conditional_edges(
+        "act",
+        route_after_act,
+        {
+            "stop_check": "stop_check",  # loop back for another retry attempt
+            "log": "log",
+        },
+    )
+
     graph.add_edge("log", END)
 
     return graph.compile()

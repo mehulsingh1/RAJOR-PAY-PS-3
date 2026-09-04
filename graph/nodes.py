@@ -136,25 +136,61 @@ def act_node(state: RecoveryState) -> RecoveryState:
     result = execute_action(state["decision"], txn)
     state["action_result"] = result
     status = "SUCCESS" if result["success"] else "NO RECOVERY"
-    print(f"[Act] {state['decision']} — {status} — ₹{result['amount_recovered']}")
+    print(
+        f"[Act] {state['decision']} — {status} — ₹{result['amount_recovered']} "
+        f"(attempt retry_count={txn.get('retry_count', 0)})"
+    )
+
+    # Record this attempt in the audit log immediately (captures every retry attempt,
+    # not just the final one).
+    attempt_entry = {
+        "txn_id": txn["txn_id"],
+        "diagnosis": state.get("diagnosis"),
+        "decision": state.get("decision"),
+        "decision_reasoning": state.get("decision_reasoning"),
+        "action_result": result,
+        "retry_count_at_attempt": txn.get("retry_count", 0),
+        "timestamp": datetime.now().isoformat(),
+    }
+    state["audit_log"] = state.get("audit_log", []) + [attempt_entry]
     return state
 
 
 def log_node(state: RecoveryState) -> RecoveryState:
-    """Append audit entry for this transaction."""
+    """Append final summary audit entry for this transaction."""
     txn = state["txn"]
     entry = {
         "txn_id": txn["txn_id"],
+        "entry_type": "final_summary",
         "diagnosis": state.get("diagnosis"),
         "decision": state.get("decision"),
         "decision_reasoning": state.get("decision_reasoning"),
         "action_result": state.get("action_result"),
         "stop_reason": state.get("stop_reason"),
+        "final_retry_count": txn.get("retry_count", 0),
         "timestamp": datetime.now().isoformat(),
     }
     state["audit_log"] = state.get("audit_log", []) + [entry]
-    print(f"[Log] entry recorded for {txn['txn_id']}")
+    print(f"[Log] final entry recorded for {txn['txn_id']}")
     return state
+
+
+def route_after_act(state: RecoveryState) -> str:
+    """
+    Conditional edge after Act.
+    If decision was 'retry', it failed, and retries remain (< 3) -> loop back
+    to stop_check for another attempt. Otherwise -> log (done).
+    """
+    txn = state["txn"]
+    decision = state.get("decision")
+    result = state.get("action_result", {})
+
+    if decision == "retry" and not result.get("success") and txn.get("retry_count", 0) < 3:
+        txn["retry_count"] = txn.get("retry_count", 0) + 1
+        print(f"[Route] Retry failed — looping back, retry_count now {txn['retry_count']}")
+        return "stop_check"
+
+    return "log"
 
 
 def route_after_stop_check(state: RecoveryState) -> str:
