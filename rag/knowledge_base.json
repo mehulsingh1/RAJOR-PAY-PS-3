@@ -1,0 +1,74 @@
+[
+  {
+    "failure_code": "insufficient_funds",
+    "stage": "payment_failure",
+    "typical_causes": "Low account balance at time of debit attempt. Common near end of month or before salary credit.",
+    "recommended_resolution": "Retry after 24-48h aligned with likely salary/credit cycle. Send low-balance reminder nudging customer to top up before next retry.",
+    "compliance_notes": "Max 3 retries per RBI auto-debit mandate rules. Minimum 24h gap required between retries.",
+    "urgency": "medium"
+  },
+  {
+    "failure_code": "bank_decline",
+    "stage": "payment_failure",
+    "typical_causes": "Issuing bank declined transaction - could be risk flag, daily limit exceeded, or technical block on bank side.",
+    "recommended_resolution": "Retry once after 12-24h. If second decline, prompt customer to try alternate payment method (UPI/different card).",
+    "compliance_notes": "Do not retry more than 2 times without customer re-authorization for card transactions.",
+    "urgency": "medium"
+  },
+  {
+    "failure_code": "card_expired",
+    "stage": "payment_failure",
+    "typical_causes": "Saved card has passed its expiry date.",
+    "recommended_resolution": "No retry possible on same card. Send reminder asking customer to update card details via secure link.",
+    "compliance_notes": "Never attempt auto-retry on expired card - will always fail and may trigger issuer fraud flags.",
+    "urgency": "high"
+  },
+  {
+    "failure_code": "issuer_timeout",
+    "stage": "payment_failure",
+    "typical_causes": "Bank/issuer system did not respond within gateway timeout window - often transient infra issue.",
+    "recommended_resolution": "Safe to retry within 1-6h, high chance of success since root cause is transient.",
+    "compliance_notes": "Standard retry rules apply, max 3 attempts, 24h spacing.",
+    "urgency": "low"
+  },
+  {
+    "failure_code": "otp_timeout",
+    "stage": "checkout_abandon",
+    "typical_causes": "Customer did not enter OTP in time - distraction, delivery delay, or network issue.",
+    "recommended_resolution": "Send immediate checkout-recovery nudge (SMS/WhatsApp) with direct resume-checkout link, within 15-30 min window.",
+    "compliance_notes": "No payment retry involved (checkout never completed) - only communication, no auto-debit.",
+    "urgency": "high"
+  },
+  {
+    "failure_code": "user_dropped",
+    "stage": "checkout_abandon",
+    "typical_causes": "Customer exited checkout flow voluntarily - price hesitation, comparison shopping, or distraction.",
+    "recommended_resolution": "Send reminder with cart summary after 1-2h. Consider small incentive (discount code) if high-value cart.",
+    "compliance_notes": "Respect do_not_contact flag strictly. Max 2 nudges before stopping.",
+    "urgency": "low"
+  },
+  {
+    "failure_code": "gateway_timeout",
+    "stage": "checkout_abandon",
+    "typical_causes": "Payment gateway did not respond in time during checkout - technical/infra issue, not customer intent.",
+    "recommended_resolution": "Send apologetic recovery message acknowledging technical issue, direct link to retry checkout immediately.",
+    "compliance_notes": "No retry limit concern since no debit occurred - communication only.",
+    "urgency": "high"
+  },
+  {
+    "failure_code": "mandate_lapsed",
+    "stage": "subscription_failure",
+    "typical_causes": "E-mandate/NACH mandate expired or was revoked, blocking recurring auto-debit.",
+    "recommended_resolution": "Cannot auto-retry. Send mandate-renewal link requiring fresh customer authorization.",
+    "compliance_notes": "RBI mandate rules require explicit re-authorization - no silent retry permitted.",
+    "urgency": "high"
+  },
+  {
+    "failure_code": "invoice_unpaid",
+    "stage": "receivable_overdue",
+    "typical_causes": "B2B invoice past due date - could be cash flow delay, dispute, or oversight on payer side.",
+    "recommended_resolution": "Escalate by days_overdue tier: 1-15d friendly reminder, 16-45d formal follow-up + call, 46-90d escalate to human/collections with promise-to-pay tracking.",
+    "compliance_notes": "Tone must stay professional/non-harassing at all tiers. Escalate to human beyond 45 days overdue or high-value accounts.",
+    "urgency": "high"
+  }
+]
