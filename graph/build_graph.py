@@ -74,11 +74,19 @@ if __name__ == "__main__":
 
     initial_state: RecoveryState = {
         "txn": test_txn,
+        "risk_score": 0.0,
+        "risk_tier": "",
+        "risk_reason": "",
+        "expected_recoverable": 0.0,
         "diagnosis": "",
         "rag_context": "",
         "decision": "",
         "decision_reasoning": "",
+        "decision_overridden": False,
         "stop_reason": None,
+        "compliance_notes": [],
+        "notifications": [],
+        "ptp": None,
         "action_result": {},
         "audit_log": [],
     }

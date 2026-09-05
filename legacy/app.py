@@ -11,7 +11,10 @@ import streamlit as st
 import pandas as pd
 
 from graph.build_graph import build_graph
-from metrics.engine import compute_metrics
+from graph.detection import prioritized, score_transaction
+from baseline.strategy import run_all_baselines, policy_label
+from metrics.engine import compute_metrics, compare_strategies
+from data.loader import load_transactions
 
 st.set_page_config(page_title="AI Revenue Recovery Agent", layout="wide")
 
@@ -19,15 +22,25 @@ st.title("AI Revenue Recovery Agent")
 st.caption("Razorpay Buildathon — Detect → Diagnose → Decide → Act → Log")
 
 # --- Load data ---
-DATA_PATH = "data/failed_transactions.csv"
+DATA_PATH = os.getenv("DATASET", "data/transactions_v2.csv")
 SAVED_RESULTS_PATH = "results/batch_results.json"
 
 @st.cache_data
 def load_data():
-    return pd.read_csv(DATA_PATH)
+    return load_transactions(DATA_PATH)
 
-df = load_data()
+try:
+    df, load_report = load_data()
+except (FileNotFoundError, ValueError) as e:
+    st.error(f"Could not load transactions: {e}")
+    st.stop()
+
 TOTAL_TXNS = len(df)
+if load_report["dropped_bad_amount"]:
+    st.warning(
+        f"Dropped {load_report['dropped_bad_amount']} row(s) with a missing or "
+        f"non-positive amount."
+    )
 
 # --- Sidebar controls ---
 st.sidebar.header("Batch Controls")
@@ -54,6 +67,22 @@ st.sidebar.markdown("---")
 st.sidebar.write(f"Total transactions in dataset: {TOTAL_TXNS}")
 st.sidebar.write(df["failure_stage"].value_counts())
 
+# --- Detection preview: what the agent would prioritise for this batch size ---
+with st.sidebar.expander("Detection — priority queue preview"):
+    preview = prioritized(df.head(batch_size).to_dict(orient="records"))[:10]
+    preview_rows = []
+    for t in preview:
+        a = score_transaction(t)
+        preview_rows.append(
+            {
+                "txn": t["txn_id"],
+                "₹": round(t["amount"]),
+                "risk": a["risk_score"],
+                "exp. recover ₹": round(a["expected_recoverable"]),
+            }
+        )
+    st.dataframe(pd.DataFrame(preview_rows), hide_index=True, use_container_width=True)
+
 # --- Session state to persist results across reruns ---
 if "results" not in st.session_state:
     st.session_state.results = []
@@ -61,7 +90,8 @@ if "results" not in st.session_state:
 # --- Run batch, live, from the UI ---
 if run_button:
     recovery_app = build_graph()
-    batch = df.head(batch_size).to_dict(orient="records")
+    # Detect stage: work the highest-value recoverable revenue first.
+    batch = prioritized(df.head(batch_size).to_dict(orient="records"))
 
     st.session_state.results = []
     progress = st.progress(0, text="Starting batch...")
@@ -70,15 +100,33 @@ if run_button:
     for i, txn in enumerate(batch):
         initial_state = {
             "txn": txn,
+            "risk_score": 0.0,
+            "risk_tier": "",
+            "risk_reason": "",
+            "expected_recoverable": 0.0,
             "diagnosis": "",
             "rag_context": "",
             "decision": "",
             "decision_reasoning": "",
             "stop_reason": None,
+            "compliance_notes": [],
+            "notifications": [],
+            "ptp": None,
             "action_result": {},
             "audit_log": [],
         }
-        final_state = recovery_app.invoke(initial_state, config={"recursion_limit": 50})
+        try:
+            final_state = recovery_app.invoke(
+                initial_state, config={"recursion_limit": 50}
+            )
+        except Exception as e:  # one bad transaction must not kill the batch
+            st.warning(f"Transaction {txn['txn_id']} failed: {e}")
+            final_state = {
+                **initial_state,
+                "stop_reason": "processing_error",
+                "decision": "none",
+                "decision_reasoning": f"error: {e}",
+            }
         st.session_state.results.append(final_state)
         progress.progress(
             (i + 1) / len(batch),
@@ -104,12 +152,16 @@ if not results:
 else:
     m = compute_metrics(results)
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     col1.metric("Total At-Risk", f"₹{m['total_at_risk_amount']:,.0f}")
-    col2.metric("Recovered", f"₹{m['total_recovered_amount']:,.0f}")
-    col3.metric("Recovery Rate", f"{m['recovery_rate_pct']}%")
+    col2.metric(
+        "Net Recovered", f"₹{m['net_recovered_amount']:,.0f}",
+        help=f"Gross ₹{m['total_recovered_amount']:,.0f} − cost ₹{m['total_intervention_cost']:,.0f}",
+    )
+    col3.metric("Net Recovery Rate", f"{m['net_recovery_rate_pct']}%")
     col4.metric("Escalations", m["escalations_count"])
     col5.metric("Stopped by Rule", m["stopped_count"])
+    col6.metric("Compliance Overrides", m.get("compliance_overrides_count", 0))
 
     st.markdown("---")
     st.subheader("Breakdown")
@@ -162,12 +214,67 @@ else:
     st.bar_chart(stage_df)
 
     st.markdown("---")
+    st.subheader("Agent vs non-AI baselines")
+    st.caption(
+        "Same transactions, same outcome model, same compliance rules — only the "
+        "decision step differs."
+    )
+
+    processed_txns = [r["txn"] for r in results]
+    comparison = compare_strategies(results, run_all_baselines(processed_txns))
+    by_strat = comparison["by_strategy"]
+
+    labels = {n: ("AI agent" if n == "agent" else policy_label(n)) for n in by_strat}
+    cmp_df = pd.DataFrame(
+        {
+            "Gross ₹": {labels[n]: v["recovered"] for n, v in by_strat.items()},
+            "Net ₹": {labels[n]: v["net_recovered"] for n, v in by_strat.items()},
+        }
+    )
+    st.bar_chart(cmp_df)
+
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    "Strategy": labels[n],
+                    "Gross ₹": f"{v['recovered']:,.0f}",
+                    "Cost ₹": f"{v['intervention_cost']:,.0f}",
+                    "Net ₹": f"{v['net_recovered']:,.0f}",
+                    "Net rate": f"{v['net_recovery_rate_pct']}%",
+                }
+                for n, v in by_strat.items()
+            ]
+        ),
+        hide_index=True,
+        use_container_width=True,
+    )
+
+    up = comparison["agent_uplift_over_best_baseline"]
+    if up and up["extra_net_recovered"] > 0:
+        st.success(
+            f"The agent nets **₹{up['extra_net_recovered']:,.0f} more** than the best "
+            f"baseline ({policy_label(up['vs'])}) — **+{up['extra_net_rate_pp']} pp** "
+            f"(gross delta ₹{up['extra_gross_recovered']:,.0f})."
+        )
+    elif up:
+        st.warning(
+            f"The agent is not beating the best baseline ({policy_label(up['vs'])}) on net "
+            f"for this batch (Δ ₹{up['extra_net_recovered']:,.0f})."
+        )
+
+    st.markdown("---")
     st.subheader("Transaction Trace")
 
     for r in results:
         txn = r["txn"]
         stop_reason = r.get("stop_reason")
-        header = f"{txn['txn_id']} — {txn['failure_code']} — ₹{txn['amount']:.0f}"
+        tier = r.get("risk_tier", "")
+        tier_badge = {"high": "🔴", "medium": "🟠", "low": "🟡"}.get(tier, "")
+        header = (
+            f"{tier_badge} {txn['txn_id']} — {txn['failure_code']} — ₹{txn['amount']:.0f} "
+            f"— risk {r.get('risk_score', 0)}"
+        )
         if stop_reason:
             header += "  🛑 HALTED"
 
@@ -175,6 +282,18 @@ else:
             st.write(f"**Stage:** {txn['failure_stage']}")
             st.write(f"**Payment method:** {txn['payment_method']}")
             st.write(f"**Segment:** {txn.get('customer_segment', 'regular')}")
+            st.write(
+                f"**Detection:** {tier} risk ({r.get('risk_score', 0)}/100) · "
+                f"expected recoverable ₹{r.get('expected_recoverable', 0):,.0f}"
+            )
+            if r.get("risk_reason"):
+                st.caption(f"Why flagged: {r['risk_reason']}")
+
+            notes = r.get("compliance_notes", [])
+            if notes:
+                st.markdown("**Compliance**")
+                for n in notes:
+                    st.write(f"- {n}")
 
             if stop_reason:
                 st.error(f"Stopped — reason: {stop_reason}")

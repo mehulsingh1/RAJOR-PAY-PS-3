@@ -3,3 +3,15 @@ __pycache__/
 *.pyc
 .env
 .DS_Store
+
+# runtime artifacts
+results/
+data/live_transactions.csv
+data/notifications.csv
+.pytest_cache/
+node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+
+# vector store — rebuild with `python rag/build_index.py`
+rag/chroma_db/

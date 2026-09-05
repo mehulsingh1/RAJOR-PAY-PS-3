@@ -23,10 +23,15 @@ def _get_collection():
         embed_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
             model_name=EMBED_MODEL
         )
-        _collection = _client.get_collection(
-            name=COLLECTION_NAME,
-            embedding_function=embed_fn,
-        )
+        try:
+            _collection = _client.get_collection(
+                name=COLLECTION_NAME, embedding_function=embed_fn,
+            )
+        except Exception as e:  # index not built yet
+            raise RuntimeError(
+                "Knowledge-base index not found — run `python rag/build_index.py` "
+                "(or use AGENT_MODE=playbook, which needs no index)."
+            ) from e
     return _collection
 
 

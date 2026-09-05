@@ -1,0 +1,12 @@
+# Test-suite dependencies only (fast, deterministic — no torch / chromadb / streamlit).
+# CI installs just this file. To run the full app, install requirements.txt too.
+pytest==9.1.1
+pandas==3.0.5
+python-dotenv==1.2.3
+langchain-groq==1.1.3
+langgraph==1.2.11
+mcp<2
+fastapi==0.141.1
+uvicorn==0.52.4
+sse-starlette==3.4.11
+httpx==0.28.1

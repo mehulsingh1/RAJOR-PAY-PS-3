@@ -1,0 +1,29 @@
+# Revenue Recovery Ops Center — Track 3
+# Python 3.11+ (developed on 3.13).  pip install -r requirements.txt
+
+# --- Agent orchestration ---
+langgraph==1.2.11
+langchain-core==1.6.1
+
+# --- Decision LLM (Groq-hosted; optional — AGENT_MODE=playbook runs without it) ---
+langchain-groq==1.1.3
+groq==0.37.1
+
+# --- RAG: vector store + local embeddings ---
+chromadb==1.5.9
+sentence-transformers==6.0.1
+
+# --- MCP: recovery tools over the Model Context Protocol ---
+mcp<2
+
+# --- Live backend (FastAPI + Server-Sent Events) ---
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+sse-starlette==3.4.11
+
+# --- Data + config ---
+pandas==3.0.5
+python-dotenv==1.2.3
+
+# --- Legacy Streamlit UI (superseded by frontend/, kept in legacy/) ---
+streamlit==1.63.0
